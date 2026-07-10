@@ -1,0 +1,185 @@
+// Firestore Security Rules for OCRS
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper function to check user role
+    function getUserRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    // Helper function to check if user is student
+    function isStudent() {
+      return getUserRole() == 'student';
+    }
+
+    // Helper function to check if user is faculty
+    function isFaculty() {
+      return getUserRole() == 'faculty';
+    }
+
+    // Helper function to check if user is admin
+    function isAdmin() {
+      return getUserRole() == 'admin';
+    }
+
+    // Helper function to get current user's student ID
+    function getStudentId() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.studentNumber;
+    }
+
+    // ===== USERS COLLECTION =====
+    match /users/{userId} {
+      // Users can read their own profile
+      allow read: if request.auth.uid == userId;
+      
+      // Admins can read all user profiles
+      allow read: if isAdmin();
+      
+      // Only admins can create and update users
+      allow create, update: if isAdmin();
+      
+      // Prevent deletion
+      allow delete: if false;
+    }
+
+    // ===== ACADEMIC YEARS =====
+    match /academicYears/{document=**} {
+      // Everyone authenticated can read
+      allow read: if request.auth != null;
+      
+      // Only admins can write
+      allow write: if isAdmin();
+    }
+
+    // ===== SEMESTERS =====
+    match /semesters/{document=**} {
+      // Everyone authenticated can read
+      allow read: if request.auth != null;
+      
+      // Only admins can write
+      allow write: if isAdmin();
+    }
+
+    // ===== SUBJECTS =====
+    match /subjects/{document=**} {
+      // Everyone authenticated can read
+      allow read: if request.auth != null;
+      
+      // Only admins can write
+      allow write: if isAdmin();
+    }
+
+    // ===== SECTIONS =====
+    match /sections/{document=**} {
+      // Everyone authenticated can read
+      allow read: if request.auth != null;
+      
+      // Only admins can write
+      allow write: if isAdmin();
+    }
+
+    // ===== CLASSES =====
+    match /classes/{classId} {
+      // Authenticated users can read
+      allow read: if request.auth != null;
+      
+      // Faculty can update only their assigned classes
+      allow update: if isFaculty() && resource.data.facultyId == request.auth.uid;
+      
+      // Only admins can create and delete
+      allow create, delete: if isAdmin();
+    }
+
+    // ===== ENROLLMENTS =====
+    match /enrollments/{enrollmentId} {
+      // Students can read their own enrollments
+      allow read: if isStudent() && resource.data.studentId == request.auth.uid;
+      
+      // Faculty can read enrollments for their classes
+      allow read: if isFaculty() && 
+        exists(/databases/$(database)/documents/classes/$(resource.data.classId)) &&
+        get(/databases/$(database)/documents/classes/$(resource.data.classId)).data.facultyId == request.auth.uid;
+      
+      // Admins can read all enrollments
+      allow read: if isAdmin();
+      
+      // Only admins can write
+      allow write: if isAdmin();
+    }
+
+    // ===== GRADE RECORDS =====
+    match /gradeRecords/{gradeId} {
+      // Students can read only their own grade records
+      allow read: if isStudent() && resource.data.studentId == request.auth.uid;
+      
+      // Faculty can read and update grades for their enrolled students
+      allow read, update: if isFaculty() && 
+        exists(/databases/$(database)/documents/classes/$(resource.data.classId)) &&
+        get(/databases/$(database)/documents/classes/$(resource.data.classId)).data.facultyId == request.auth.uid &&
+        !resource.data.isLocked;
+      
+      // Admins have full access
+      allow read, write: if isAdmin();
+      
+      // Prevent student deletion/creation
+      allow create, delete: if isAdmin();
+    }
+
+    // ===== ATTENDANCE RECORDS =====
+    match /attendanceRecords/{attendanceId} {
+      // Students can read their own attendance
+      allow read: if isStudent() && resource.data.studentId == request.auth.uid;
+      
+      // Faculty can read and update attendance for their classes
+      allow read, update: if isFaculty() && 
+        exists(/databases/$(database)/documents/classes/$(resource.data.classId)) &&
+        get(/databases/$(database)/documents/classes/$(resource.data.classId)).data.facultyId == request.auth.uid &&
+        !resource.data.isLocked;
+      
+      // Admins have full access
+      allow read, write: if isAdmin();
+    }
+
+    // ===== REPORTS =====
+    match /reports/{reportId} {
+      // Users can read reports they generated
+      allow read: if request.auth.uid == resource.data.generatedBy;
+      
+      // Admins can read all reports
+      allow read: if isAdmin();
+      
+      // Faculty and admins can generate reports
+      allow create: if isFaculty() || isAdmin();
+      
+      // Only admins can delete reports
+      allow delete: if isAdmin();
+    }
+
+    // ===== AUDIT LOGS =====
+    match /auditLogs/{logId} {
+      // Only admins can read audit logs
+      allow read: if isAdmin();
+      
+      // Cloud Functions create audit logs (no direct user creation)
+      allow create: if false;
+      
+      // Prevent modification and deletion
+      allow update, delete: if false;
+    }
+
+    // ===== GPA CALCULATIONS (read-only for users) =====
+    match /gpaCalculations/{studentId} {
+      // Students can read their own GPA calculations
+      allow read: if isStudent() && request.auth.uid == studentId;
+      
+      // Admins can read all GPA calculations
+      allow read: if isAdmin();
+      
+      // Only Cloud Functions can write
+      allow write: if false;
+    }
+
+  }
+}
