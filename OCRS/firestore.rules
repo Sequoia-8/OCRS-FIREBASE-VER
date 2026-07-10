@@ -1,0 +1,125 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function profile() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function role() {
+      return signedIn() ? profile().role : null;
+    }
+
+    function isAdmin() {
+      return role() == "admin";
+    }
+
+    function isFaculty() {
+      return role() == "faculty";
+    }
+
+    function isStudent() {
+      return role() == "student";
+    }
+
+    function active() {
+      return signedIn() && profile().status == "active";
+    }
+
+    function assignedToClass(classId) {
+      return exists(/databases/$(database)/documents/classes/$(classId))
+        && request.auth.uid in get(/databases/$(database)/documents/classes/$(classId)).data.facultyIds;
+    }
+
+    match /users/{userId} {
+      allow read: if active() && (isAdmin() || request.auth.uid == userId);
+      allow create, update: if active() && isAdmin();
+      allow delete: if false;
+    }
+
+    match /academicYears/{id} {
+      allow read: if active();
+      allow write: if active() && isAdmin();
+    }
+
+    match /semesters/{id} {
+      allow read: if active();
+      allow write: if active() && isAdmin();
+    }
+
+    match /programs/{id} {
+      allow read: if active();
+      allow write: if active() && isAdmin();
+    }
+
+    match /subjects/{id} {
+      allow read: if active();
+      allow write: if active() && isAdmin();
+    }
+
+    match /sections/{id} {
+      allow read: if active();
+      allow write: if active() && isAdmin();
+    }
+
+    match /classes/{classId} {
+      allow read: if active() && (isAdmin() || assignedToClass(classId));
+      allow write: if active() && isAdmin();
+    }
+
+    match /enrollments/{id} {
+      allow read: if active() && (
+        isAdmin()
+        || resource.data.studentId == request.auth.uid
+        || assignedToClass(resource.data.classId)
+      );
+      allow write: if active() && isAdmin();
+    }
+
+    match /gradeRecords/{recordId} {
+      allow read: if active() && (
+        isAdmin()
+        || resource.data.studentId == request.auth.uid
+        || resource.data.facultyId == request.auth.uid
+        || assignedToClass(resource.data.classId)
+      );
+
+      allow create, update, delete: if false;
+    }
+
+    match /attendanceRecords/{recordId} {
+      allow read: if active() && (
+        isAdmin()
+        || resource.data.studentId == request.auth.uid
+        || resource.data.facultyId == request.auth.uid
+        || assignedToClass(resource.data.classId)
+      );
+
+      allow create, update: if active()
+        && isFaculty()
+        && request.resource.data.facultyId == request.auth.uid
+        && assignedToClass(request.resource.data.classId)
+        && request.resource.data.locked != true;
+
+      allow delete: if false;
+    }
+
+    match /reports/{id} {
+      allow read: if active() && (
+        isAdmin()
+        || resource.data.ownerId == request.auth.uid
+        || resource.data.visibility == "institution"
+      );
+      allow write: if false;
+    }
+
+    match /auditLogs/{id} {
+      allow read: if active() && isAdmin();
+      allow write: if false;
+    }
+  }
+}

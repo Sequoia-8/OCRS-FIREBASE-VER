@@ -1,0 +1,17 @@
+{
+  "name": "ocrs-functions",
+  "description": "Protected Firebase Cloud Functions for OCRS",
+  "main": "index.js",
+  "engines": {
+    "node": "20"
+  },
+  "scripts": {
+    "lint": "node --check index.js",
+    "serve": "firebase emulators:start --only functions,firestore,auth,hosting",
+    "deploy": "firebase deploy --only functions"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.5.0",
+    "firebase-functions": "^5.1.1"
+  }
+}
